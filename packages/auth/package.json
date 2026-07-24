@@ -1,0 +1,20 @@
+{
+  "name": "auth",
+  "module": "src/index.ts",
+  "exports": "./src/index.ts",
+  "type": "module",
+  "scripts": {
+    "auth:info": "bunx auth@latest info --config src/auth.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/bun": "latest"
+  },
+  "peerDependencies": {
+    "typescript": "^5"
+  },
+  "dependencies": {
+    "better-auth": "^1.6.23",
+    "db": "workspace:*"
+  }
+}

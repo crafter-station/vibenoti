@@ -1,0 +1,26 @@
+{
+  "name": "db",
+  "module": "src/index.ts",
+  "exports": "./src/index.ts",
+  "type": "module",
+  "scripts": {
+    "auth:generate": "bunx auth@latest generate --config ../auth/src/auth.ts --output src/auth-schema.ts --yes",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "drizzle-kit migrate",
+    "db:push": "drizzle-kit push",
+    "db:pull": "drizzle-kit pull",
+    "db:check": "drizzle-kit check",
+    "db:studio": "drizzle-kit studio",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "drizzle-kit": "^0.31.8"
+  },
+  "peerDependencies": {
+    "typescript": "^5"
+  },
+  "dependencies": {
+    "drizzle-orm": "^0.45.2"
+  }
+}

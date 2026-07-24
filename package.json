@@ -1,0 +1,28 @@
+{
+  "name": "vibenoti",
+  "type": "module",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "bun run --workspaces --parallel --if-present dev",
+    "opencode": "bun --env-file=apps/web/.env packages/opencode/src/launch.ts",
+    "build": "bun run --filter web build",
+    "lint": "bun run --filter web lint",
+    "test": "bun run --workspaces --if-present test",
+    "typecheck": "bun run --workspaces --if-present typecheck",
+    "auth:generate": "bun run --filter db auth:generate",
+    "db:generate": "bun run --filter db db:generate",
+    "db:migrate": "bun run --filter db db:migrate",
+    "db:push": "bun run --filter db db:push",
+    "db:pull": "bun run --filter db db:pull",
+    "db:check": "bun run --filter db db:check",
+    "db:studio": "bun run --filter db db:studio"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "typescript": "^5"
+  }
+}

@@ -1,0 +1,185 @@
+import { createHash, timingSafeEqual } from "node:crypto";
+
+import { openCodeEventSchema } from "./event-schema";
+
+const MAX_BODY_SIZE = 16 * 1024;
+
+type ErrorCode =
+  | "invalid_content_type"
+  | "invalid_json"
+  | "invalid_request"
+  | "payload_too_large"
+  | "server_misconfigured"
+  | "unauthorized";
+
+type LogLevel = "info" | "warn" | "error";
+
+function logEvent(
+  level: LogLevel,
+  message: string,
+  metadata: Record<string, unknown> = {},
+) {
+  const entry = JSON.stringify({
+    service: "vibenoti-api",
+    level,
+    message,
+    ...metadata,
+  });
+
+  if (level === "error") {
+    console.error(entry);
+    return;
+  }
+
+  if (level === "warn") {
+    console.warn(entry);
+    return;
+  }
+
+  console.info(entry);
+}
+
+function errorResponse(code: ErrorCode, message: string, status: number) {
+  return Response.json({ error: { code, message } }, { status });
+}
+
+function isAuthorized(request: Request, apiKey: string) {
+  const authorization = request.headers.get("authorization");
+
+  if (!authorization?.startsWith("Bearer ")) {
+    return false;
+  }
+
+  const providedDigest = createHash("sha256")
+    .update(authorization.slice(7))
+    .digest();
+  const expectedDigest = createHash("sha256").update(apiKey).digest();
+
+  return timingSafeEqual(providedDigest, expectedDigest);
+}
+
+async function readBody(request: Request) {
+  const contentLength = Number(request.headers.get("content-length"));
+
+  if (Number.isFinite(contentLength) && contentLength > MAX_BODY_SIZE) {
+    return null;
+  }
+
+  if (!request.body) {
+    return "";
+  }
+
+  const reader = request.body.getReader();
+  const decoder = new TextDecoder();
+  let body = "";
+  let size = 0;
+
+  while (true) {
+    const { done, value } = await reader.read();
+
+    if (done) {
+      return body + decoder.decode();
+    }
+
+    size += value.byteLength;
+    if (size > MAX_BODY_SIZE) {
+      await reader.cancel();
+      return null;
+    }
+
+    body += decoder.decode(value, { stream: true });
+  }
+}
+
+export async function ingestEvent(request: Request) {
+  const apiKey = process.env.API_KEY;
+
+  if (!apiKey) {
+    logEvent("error", "Event endpoint is not configured");
+    return errorResponse(
+      "server_misconfigured",
+      "The server is not configured to receive events",
+      500,
+    );
+  }
+
+  if (!isAuthorized(request, apiKey)) {
+    logEvent("warn", "Event request rejected", { reason: "unauthorized" });
+    return Response.json(
+      { error: { code: "unauthorized", message: "Invalid API key" } },
+      {
+        status: 401,
+        headers: { "WWW-Authenticate": "Bearer" },
+      },
+    );
+  }
+
+  const contentType = request.headers.get("content-type")?.split(";", 1)[0];
+  if (contentType?.trim().toLowerCase() !== "application/json") {
+    logEvent("warn", "Event request rejected", {
+      reason: "invalid_content_type",
+    });
+    return errorResponse(
+      "invalid_content_type",
+      "Content-Type must be application/json",
+      415,
+    );
+  }
+
+  const body = await readBody(request);
+  if (body === null) {
+    logEvent("warn", "Event request rejected", {
+      reason: "payload_too_large",
+    });
+    return errorResponse(
+      "payload_too_large",
+      `Payload must not exceed ${MAX_BODY_SIZE} bytes`,
+      413,
+    );
+  }
+
+  let input: unknown;
+  try {
+    input = JSON.parse(body);
+  } catch {
+    logEvent("warn", "Event request rejected", { reason: "invalid_json" });
+    return errorResponse(
+      "invalid_json",
+      "Request body must be valid JSON",
+      400,
+    );
+  }
+
+  const result = openCodeEventSchema.safeParse(input);
+  if (!result.success) {
+    logEvent("warn", "Event request rejected", {
+      reason: "invalid_request",
+      issues: result.error.issues.map((issue) => ({
+        code: issue.code,
+        path: issue.path.join("."),
+      })),
+    });
+    return errorResponse(
+      "invalid_request",
+      "Request body does not match the event contract",
+      422,
+    );
+  }
+
+  logEvent("info", "Event accepted", {
+    contractVersion: result.data.contractVersion,
+    eventId: result.data.eventId,
+    eventType: result.data.eventType,
+    occurredAt: result.data.occurredAt,
+    projectId: result.data.project.id,
+    projectName: result.data.project.name,
+    sessionId: result.data.session.id,
+    sessionTitle: result.data.session.title,
+    source: result.data.source,
+  });
+
+  return Response.json(
+    { accepted: true, eventId: result.data.eventId },
+    { status: 202 },
+  );
+}
