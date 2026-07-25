@@ -8,7 +8,9 @@ import {
   createContext,
   useContext,
   forwardRef,
+  type ComponentProps,
   type ReactNode,
+  type ReactElement,
   type HTMLAttributes,
 } from "react";
 import { Tabs } from "@base-ui/react/tabs";
@@ -17,7 +19,6 @@ import type { IconComponent } from "@/lib/icon-context";
 import { cn } from "@/lib/utils";
 import { spring } from "@/lib/springs";
 import { fontWeights } from "@/lib/font-weight";
-import { useShape } from "@/lib/shape-context";
 import { useProximityHover } from "@/hooks/use-proximity-hover";
 
 interface TabsSubtleContextValue {
@@ -39,7 +40,7 @@ function useTabsSubtle() {
 interface TabsSubtleProps extends Omit<HTMLAttributes<HTMLDivElement>, "onSelect"> {
   children: ReactNode;
   selectedIndex: number;
-  onSelect: (index: number) => void;
+  onSelect?: (index: number) => void;
   idPrefix?: string;
   /** When true, only the selected tab shows its text label. Requires icons on tabs. */
   activeLabel?: boolean;
@@ -49,8 +50,6 @@ const TabsSubtle = forwardRef<HTMLDivElement, TabsSubtleProps>(
   ({ children, selectedIndex, onSelect, idPrefix, activeLabel = false, className, ...props }, ref) => {
     const containerRef = useRef<HTMLDivElement>(null);
     const isMouseInside = useRef(false);
-    const shape = useShape();
-
     const {
       activeIndex: hoveredIndex,
       setActiveIndex: setHoveredIndex,
@@ -122,7 +121,7 @@ const TabsSubtle = forwardRef<HTMLDivElement, TabsSubtleProps>(
         <Tabs.Root
           value={selectedIndex}
           onValueChange={(value) => {
-            if (typeof value === "number") onSelect(value);
+            if (typeof value === "number") onSelect?.(value);
           }}
           render={
             <Tabs.List
@@ -163,7 +162,7 @@ const TabsSubtle = forwardRef<HTMLDivElement, TabsSubtleProps>(
               {/* Selected pill */}
               {selectedRect && (
                 <motion.div
-                  className={cn("absolute bg-active pointer-events-none", shape.bg)}
+                  className="absolute pointer-events-none rounded-md bg-accent"
                   initial={false}
                   animate={{
                     left: selectedRect.left,
@@ -183,7 +182,7 @@ const TabsSubtle = forwardRef<HTMLDivElement, TabsSubtleProps>(
               <AnimatePresence>
                 {hoverRect && !isHoveringSelected && selectedRect && (
                   <motion.div
-                    className={cn("absolute bg-active pointer-events-none", shape.bg)}
+                    className="absolute pointer-events-none rounded-md bg-accent"
                     initial={{
                       left: selectedRect.left,
                       width: selectedRect.width,
@@ -222,7 +221,7 @@ const TabsSubtle = forwardRef<HTMLDivElement, TabsSubtleProps>(
               <AnimatePresence>
                 {focusRect && (
                   <motion.div
-                    className={cn("absolute pointer-events-none z-20 border border-[color:var(--focus-ring,#6B97FF)]", shape.focusRing)}
+                    className="absolute z-20 pointer-events-none rounded-[calc(var(--radius)+2px)] border border-[color:var(--focus-ring,#6B97FF)]"
                     initial={false}
                     animate={{
                       left: focusRect.left - 2,
@@ -250,16 +249,21 @@ const TabsSubtle = forwardRef<HTMLDivElement, TabsSubtleProps>(
 
 TabsSubtle.displayName = "TabsSubtle";
 
-interface TabsSubtleItemProps extends HTMLAttributes<HTMLButtonElement> {
+interface TabsSubtleItemProps extends Omit<
+  ComponentProps<typeof Tabs.Tab>,
+  "children" | "className" | "nativeButton" | "render" | "value"
+> {
   icon?: IconComponent;
   label: string;
   index: number;
+  className?: string;
+  render?: ReactElement;
+  nativeButton?: boolean;
 }
 
-const TabsSubtleItem = forwardRef<HTMLButtonElement, TabsSubtleItemProps>(
-  ({ icon: Icon, label, index, className, ...props }, ref) => {
-    const internalRef = useRef<HTMLButtonElement | null>(null);
-    const shape = useShape();
+const TabsSubtleItem = forwardRef<HTMLElement, TabsSubtleItemProps>(
+  ({ icon: Icon, label, index, className, render, nativeButton, ...props }, ref) => {
+    const internalRef = useRef<HTMLElement | null>(null);
     const { registerTab, hoveredIndex, selectedIndex, idPrefix, activeLabel } =
       useTabsSubtle();
 
@@ -301,17 +305,18 @@ const TabsSubtleItem = forwardRef<HTMLButtonElement, TabsSubtleItemProps>(
     );
 
     return (
-      // Base UI Tab renders a native <button type="button"> and wires
-      // role="tab", aria-selected, roving tabindex, and activation for us.
+      // Base UI Tab renders a button by default, or merges its behavior into
+      // the element supplied through `render` (for example, a route Link).
       // id/aria-controls are only overridden when an idPrefix is supplied so
       // externally rendered TabsSubtlePanel elements stay linked.
       <Tabs.Tab
         ref={(node: HTMLElement | null) => {
-          const button = node as HTMLButtonElement | null;
-          internalRef.current = button;
-          if (typeof ref === "function") ref(button);
-          else if (ref) (ref as React.MutableRefObject<HTMLButtonElement | null>).current = button;
+          internalRef.current = node;
+          if (typeof ref === "function") ref(node);
+          else if (ref) (ref as React.MutableRefObject<HTMLElement | null>).current = node;
         }}
+        render={render}
+        nativeButton={nativeButton}
         value={index}
         data-proximity-index={index}
         id={idPrefix ? `${idPrefix}-tab-${index}` : undefined}
@@ -322,7 +327,7 @@ const TabsSubtleItem = forwardRef<HTMLButtonElement, TabsSubtleItemProps>(
           // text-box trim on the label doesn't shrink the tab.
           "relative z-10 flex items-center px-3 cursor-pointer bg-transparent border-none outline-none",
           collapseLabel ? "h-8" : "h-9 gap-2",
-          shape.bg,
+          "rounded-md",
           className
         )}
         {...props}

@@ -8,7 +8,7 @@ import { CreateApiKeyForm } from "./create-api-key-form";
 
 export default function NewApiKeyPage() {
   return (
-    <main className="min-h-dvh bg-muted/30 px-4 py-10 sm:py-16">
+    <main className="flex-1 bg-muted/30 px-4 py-10 sm:py-16">
       <div className="mx-auto flex w-full max-w-xl flex-col gap-8">
         <Link
           href="/dashboard"
