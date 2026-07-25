@@ -11,7 +11,7 @@ bun install
 Create the local environment file and fill in its secrets:
 
 ```bash
-cp .env.example .env
+cp .env.example apps/web/.env
 ```
 
 Start the development workspaces:
