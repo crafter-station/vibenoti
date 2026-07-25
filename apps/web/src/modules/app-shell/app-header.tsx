@@ -9,6 +9,7 @@ import {
   IconPlug2FillDuo18,
 } from "nucleo-ui-essential-fill-duo-18";
 import { TabsSubtle, TabsSubtleItem } from "@/components/ui/tabs-subtle";
+import { CreateApiKeyDialog } from "./create-api-key-dialog";
 
 const tabs = [
   { href: "/dashboard", icon: IconGauge3FillDuo18, label: "Analytics" },
@@ -47,18 +48,21 @@ export function AppHeader({ avatarHash }: AppHeaderProps) {
         </TabsSubtle>
       </nav>
 
-      <span
-        className="size-8 shrink-0 overflow-hidden rounded-full ring-1 ring-border"
-        role="img"
-        aria-label="User avatar"
-      >
-        <Hashvatar
-          hash={avatarHash}
-          size={32}
-          mode="dither"
-          className="rounded-full"
-        />
-      </span>
+      <div className="flex shrink-0 items-center gap-2">
+        <CreateApiKeyDialog />
+        <span
+          className="size-8 shrink-0 overflow-hidden rounded-full ring-1 ring-border"
+          role="img"
+          aria-label="User avatar"
+        >
+          <Hashvatar
+            hash={avatarHash}
+            size={32}
+            mode="dither"
+            className="rounded-full"
+          />
+        </span>
+      </div>
     </header>
   );
 }
