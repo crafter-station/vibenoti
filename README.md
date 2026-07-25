@@ -26,8 +26,9 @@ Start OpenCode with the API environment loaded:
 bun run opencode
 ```
 
-The launcher reads `apps/web/.env` and passes its `API_KEY` to the plugin as
-`VIBENOTI_API_KEY`. OpenCode must be restarted after plugin changes.
+The launcher reads `VIBENOTI_API_KEY` from `apps/web/.env`. Generate the key
+through Better Auth before starting OpenCode. OpenCode must be restarted after
+plugin changes.
 
 ## Validation
 

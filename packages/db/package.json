@@ -4,7 +4,7 @@
   "exports": "./src/index.ts",
   "type": "module",
   "scripts": {
-    "auth:generate": "bunx auth@latest generate --config ../auth/src/auth.ts --output src/auth-schema.ts --yes",
+    "auth:generate": "bunx --bun auth@latest generate --config ../auth/src/auth.ts --output src/auth-schema.ts --yes",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
     "db:push": "drizzle-kit push",

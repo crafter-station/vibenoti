@@ -173,6 +173,10 @@ describe("VibeNotiPlugin", () => {
       expect(JSON.stringify(payload)).not.toContain("/private/");
     }
 
+    for (const request of requests) {
+      expect(request.headers.get("authorization")).toBe("Bearer test-key");
+    }
+
     expect(logs.filter((log) => log.message === "Event sent")).toHaveLength(5);
   });
 

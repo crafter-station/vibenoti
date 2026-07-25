@@ -15,7 +15,8 @@ export VIBENOTI_COMMAND_EVENTS=false
 
 `VIBENOTI_API_URL` usa `http://localhost:3000` por defecto.
 `command.executed` solo se envía cuando `VIBENOTI_COMMAND_EVENTS=true`.
-`VIBENOTI_API_KEY` debe tener el mismo valor que `API_KEY` en el servidor.
+`VIBENOTI_API_KEY` debe ser una key creada mediante Better Auth con permiso
+`events:write`.
 
 Este repositorio carga la implementación de `packages/opencode` mediante
 `.opencode/plugins/vibenoti.ts`. Ejecuta `bun install` desde la raíz antes de
@@ -27,7 +28,7 @@ OpenCode carga plugins y configuración una sola vez. Ciérralo y vuelve a
 iniciarlo después de instalar o modificar el plugin.
 
 Para desarrollo local, la raíz del repositorio incluye un launcher que carga
-`API_KEY` desde `apps/web/.env`:
+`VIBENOTI_API_KEY` desde `apps/web/.env`:
 
 ```bash
 bun run opencode

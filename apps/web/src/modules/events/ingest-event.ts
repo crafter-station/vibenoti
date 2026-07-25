@@ -1,5 +1,3 @@
-import { createHash, timingSafeEqual } from "node:crypto";
-
 import { openCodeEventSchema } from "./event-schema";
 
 const MAX_BODY_SIZE = 16 * 1024;
@@ -9,8 +7,18 @@ type ErrorCode =
   | "invalid_json"
   | "invalid_request"
   | "payload_too_large"
-  | "server_misconfigured"
+  | "service_unavailable"
   | "unauthorized";
+
+type ApiKeyVerification = {
+  valid: boolean;
+  key: {
+    id: string;
+    referenceId: string;
+  } | null;
+};
+
+type VerifyApiKey = (key: string) => Promise<ApiKeyVerification>;
 
 type LogLevel = "info" | "warn" | "error";
 
@@ -43,19 +51,9 @@ function errorResponse(code: ErrorCode, message: string, status: number) {
   return Response.json({ error: { code, message } }, { status });
 }
 
-function isAuthorized(request: Request, apiKey: string) {
+function getBearerToken(request: Request) {
   const authorization = request.headers.get("authorization");
-
-  if (!authorization?.startsWith("Bearer ")) {
-    return false;
-  }
-
-  const providedDigest = createHash("sha256")
-    .update(authorization.slice(7))
-    .digest();
-  const expectedDigest = createHash("sha256").update(apiKey).digest();
-
-  return timingSafeEqual(providedDigest, expectedDigest);
+  return authorization?.match(/^Bearer ([^\s]+)$/)?.[1] ?? null;
 }
 
 async function readBody(request: Request) {
@@ -91,19 +89,39 @@ async function readBody(request: Request) {
   }
 }
 
-export async function ingestEvent(request: Request) {
-  const apiKey = process.env.API_KEY;
+export async function ingestEvent(
+  request: Request,
+  verifyApiKey: VerifyApiKey,
+) {
+  const apiKey = getBearerToken(request);
 
   if (!apiKey) {
-    logEvent("error", "Event endpoint is not configured");
-    return errorResponse(
-      "server_misconfigured",
-      "The server is not configured to receive events",
-      500,
+    logEvent("warn", "Event request rejected", { reason: "unauthorized" });
+    return Response.json(
+      { error: { code: "unauthorized", message: "Invalid API key" } },
+      {
+        status: 401,
+        headers: { "WWW-Authenticate": "Bearer" },
+      },
     );
   }
 
-  if (!isAuthorized(request, apiKey)) {
+  let verifiedKey: ApiKeyVerification["key"];
+  try {
+    const verification = await verifyApiKey(apiKey);
+    verifiedKey = verification.valid ? verification.key : null;
+  } catch {
+    logEvent("error", "API key verification failed", {
+      reason: "storage_unavailable",
+    });
+    return errorResponse(
+      "service_unavailable",
+      "Authentication service is temporarily unavailable",
+      503,
+    );
+  }
+
+  if (!verifiedKey) {
     logEvent("warn", "Event request rejected", { reason: "unauthorized" });
     return Response.json(
       { error: { code: "unauthorized", message: "Invalid API key" } },
@@ -167,12 +185,14 @@ export async function ingestEvent(request: Request) {
   }
 
   logEvent("info", "Event accepted", {
+    apiKeyId: verifiedKey.id,
     contractVersion: result.data.contractVersion,
     eventId: result.data.eventId,
     eventType: result.data.eventType,
     occurredAt: result.data.occurredAt,
     projectId: result.data.project.id,
     projectName: result.data.project.name,
+    referenceId: verifiedKey.referenceId,
     sessionId: result.data.session.id,
     sessionTitle: result.data.session.title,
     source: result.data.source,

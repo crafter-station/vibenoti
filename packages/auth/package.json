@@ -4,7 +4,7 @@
   "exports": "./src/index.ts",
   "type": "module",
   "scripts": {
-    "auth:info": "bunx auth@latest info --config src/auth.ts",
+    "auth:info": "bunx --bun auth@latest info --config src/auth.ts",
     "test": "bun test",
     "typecheck": "tsc --noEmit"
   },
@@ -16,6 +16,7 @@
   },
   "dependencies": {
     "@better-auth/api-key": "^1.6.25",
+    "@better-auth/core": "^1.6.25",
     "@upstash/redis": "^1.38.0",
     "better-auth": "^1.6.25",
     "db": "workspace:*"

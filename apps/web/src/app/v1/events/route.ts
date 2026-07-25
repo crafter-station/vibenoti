@@ -1,1 +1,16 @@
-export { ingestEvent as POST } from "@/modules/events/ingest-event";
+import { auth } from "auth";
+
+import { ingestEvent } from "@/modules/events/ingest-event";
+
+export function POST(request: Request) {
+  return ingestEvent(request, (key) =>
+    auth.api.verifyApiKey({
+      body: {
+        key,
+        permissions: {
+          events: ["write"],
+        },
+      },
+    }),
+  );
+}
