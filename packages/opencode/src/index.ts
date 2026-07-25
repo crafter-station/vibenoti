@@ -5,26 +5,34 @@ const REQUEST_TIMEOUT_MS = 5_000;
 
 type OpenCodeEvent = Parameters<NonNullable<Hooks["event"]>>[0]["event"];
 type RuntimeEvent = {
+  id?: unknown;
   type: string;
   properties?: Record<string, unknown>;
 };
 
 type VibeEventType =
-  | "session.idle"
+  | "assistant.completed"
+  | "question.asked"
   | "session.error"
-  | "session.status.retry"
+  | "session.retry"
+  | "tool.failed"
   | "permission.asked"
-  | "todo.updated"
   | "command.executed";
 
 type EventDescriptor = {
   eventType: VibeEventType;
   sessionId: string;
+  occurredAt?: number;
 };
 
 type SessionMetadata = {
   title: string;
   parentId: string | null;
+};
+
+type SessionActivity = {
+  assistantCompletedAt: number | null;
+  failed: boolean;
 };
 
 type EventPayload = {
@@ -67,9 +75,61 @@ function getSessionId(properties: Record<string, unknown> | undefined) {
     : null;
 }
 
+function getAssistantCompletion(event: RuntimeEvent) {
+  if (event.type !== "message.updated") {
+    return null;
+  }
+
+  const info = event.properties?.info;
+  if (typeof info !== "object" || info === null || !("role" in info)) {
+    return null;
+  }
+
+  if (info.role !== "assistant" || ("error" in info && info.error)) {
+    return null;
+  }
+
+  const time = "time" in info ? info.time : null;
+  if (
+    typeof time !== "object" ||
+    time === null ||
+    !("completed" in time) ||
+    typeof time.completed !== "number"
+  ) {
+    return null;
+  }
+
+  const sessionId =
+    getSessionId(event.properties) ||
+    ("sessionID" in info ? safeIdentifier(info.sessionID) : null);
+
+  return sessionId && sessionId !== "unknown"
+    ? {
+        sessionId,
+        completedAt: time.completed,
+        terminal: "finish" in info && info.finish === "stop",
+      }
+    : null;
+}
+
+function getStatusType(event: RuntimeEvent) {
+  if (event.type !== "session.status") {
+    return null;
+  }
+
+  const status = event.properties?.status;
+  return typeof status === "object" &&
+    status !== null &&
+    "type" in status &&
+    typeof status.type === "string"
+    ? status.type
+    : null;
+}
+
 function describeEvent(
   event: RuntimeEvent,
   commandEventsEnabled: boolean,
+  activity: Map<string, SessionActivity>,
 ): EventDescriptor | null {
   const sessionId = getSessionId(event.properties);
 
@@ -79,25 +139,44 @@ function describeEvent(
 
   switch (event.type) {
     case "session.idle":
-    case "session.error":
-    case "todo.updated":
-      return { eventType: event.type, sessionId };
-    case "permission.updated":
-    case "permission.asked":
-      return { eventType: "permission.asked", sessionId };
     case "session.status": {
-      const status = event.properties?.status;
-      if (
-        typeof status !== "object" ||
-        status === null ||
-        !("type" in status) ||
-        status.type !== "retry"
-      ) {
+      const status = getStatusType(event);
+      if (status === "retry") {
+        return { eventType: "session.retry", sessionId };
+      }
+      if (event.type === "session.status" && status !== "idle") {
         return null;
       }
 
-      return { eventType: "session.status.retry", sessionId };
+      const state = activity.get(sessionId);
+      activity.delete(sessionId);
+      return state?.assistantCompletedAt && !state.failed
+        ? {
+            eventType: "assistant.completed",
+            sessionId,
+            occurredAt: state.assistantCompletedAt,
+          }
+        : null;
     }
+    case "session.error": {
+      const state = activity.get(sessionId);
+      activity.set(sessionId, {
+        assistantCompletedAt: state?.assistantCompletedAt ?? null,
+        failed: true,
+      });
+      return { eventType: "session.error", sessionId };
+    }
+    case "question.asked":
+    case "question.v2.asked":
+      return { eventType: "question.asked", sessionId };
+    case "permission.updated":
+    case "permission.asked":
+    case "permission.v2.asked":
+      return { eventType: "permission.asked", sessionId };
+    case "session.next.retried":
+      return { eventType: "session.retry", sessionId };
+    case "session.next.tool.failed":
+      return { eventType: "tool.failed", sessionId };
     case "command.executed":
       return commandEventsEnabled
         ? { eventType: "command.executed", sessionId }
@@ -105,6 +184,35 @@ function describeEvent(
     default:
       return null;
   }
+}
+
+async function createEventId(event: RuntimeEvent) {
+  if (typeof event.id !== "string" || !event.id) {
+    return crypto.randomUUID();
+  }
+
+  if (
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+      event.id,
+    )
+  ) {
+    return event.id.toLowerCase();
+  }
+
+  const digest = new Uint8Array(
+    await crypto.subtle.digest(
+      "SHA-256",
+      new TextEncoder().encode(`opencode:${event.id}`),
+    ),
+  ).slice(0, 16);
+  digest[6] = ((digest[6] ?? 0) & 0x0f) | 0x50;
+  digest[8] = ((digest[8] ?? 0) & 0x3f) | 0x80;
+
+  const hex = Array.from(digest, (byte) =>
+    byte.toString(16).padStart(2, "0"),
+  ).join("");
+
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 }
 
 function getSessionFromEvent(
@@ -159,6 +267,7 @@ export const VibeNotiPlugin: Plugin = async ({
   const apiKey = process.env.VIBENOTI_API_KEY;
   const commandEventsEnabled = process.env.VIBENOTI_COMMAND_EVENTS === "true";
   const sessions = new Map<string, SessionMetadata>();
+  const activity = new Map<string, SessionActivity>();
 
   const log = async (
     level: "debug" | "info" | "warn" | "error",
@@ -233,6 +342,18 @@ export const VibeNotiPlugin: Plugin = async ({
   });
 
   return {
+    "experimental.text.complete": async ({ sessionID }) => {
+      const sessionId = safeIdentifier(sessionID);
+      if (sessionId === "unknown") {
+        return;
+      }
+
+      const state = activity.get(sessionId);
+      activity.set(sessionId, {
+        assistantCompletedAt: Date.now(),
+        failed: state?.failed ?? false,
+      });
+    },
     event: async ({ event }: { event: OpenCodeEvent }) => {
       const runtimeEvent = event as RuntimeEvent;
       const sessionFromEvent = getSessionFromEvent(runtimeEvent);
@@ -245,10 +366,46 @@ export const VibeNotiPlugin: Plugin = async ({
       const deletedSessionId = getDeletedSessionId(runtimeEvent);
       if (deletedSessionId) {
         sessions.delete(deletedSessionId);
+        activity.delete(deletedSessionId);
         return;
       }
 
-      const descriptor = describeEvent(runtimeEvent, commandEventsEnabled);
+      const assistantCompletion = getAssistantCompletion(runtimeEvent);
+      let descriptor: EventDescriptor | null = null;
+      if (assistantCompletion) {
+        const state = activity.get(assistantCompletion.sessionId);
+        activity.set(assistantCompletion.sessionId, {
+          assistantCompletedAt: assistantCompletion.completedAt,
+          failed: state?.failed ?? false,
+        });
+        if (!assistantCompletion.terminal) {
+          return;
+        }
+
+        activity.delete(assistantCompletion.sessionId);
+        descriptor = {
+          eventType: "assistant.completed",
+          sessionId: assistantCompletion.sessionId,
+          occurredAt: assistantCompletion.completedAt,
+        };
+      }
+
+      if (getStatusType(runtimeEvent) === "busy") {
+        const sessionId = getSessionId(runtimeEvent.properties);
+        if (sessionId) {
+          activity.set(sessionId, {
+            assistantCompletedAt: null,
+            failed: false,
+          });
+        }
+        return;
+      }
+
+      descriptor ??= describeEvent(
+        runtimeEvent,
+        commandEventsEnabled,
+        activity,
+      );
       if (!descriptor) {
         return;
       }
@@ -269,9 +426,9 @@ export const VibeNotiPlugin: Plugin = async ({
       const payload: EventPayload = {
         source: "opencode",
         contractVersion: 1,
-        eventId: crypto.randomUUID(),
+        eventId: await createEventId(runtimeEvent),
         eventType: descriptor.eventType,
-        occurredAt: new Date().toISOString(),
+        occurredAt: new Date(descriptor.occurredAt ?? Date.now()).toISOString(),
         project: {
           id: projectId,
           name: projectName || "OpenCode project",

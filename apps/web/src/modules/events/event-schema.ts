@@ -1,9 +1,13 @@
 import { z } from "zod";
 
 const EVENT_TYPES = [
+  "assistant.completed",
+  "question.asked",
   "session.idle",
   "session.error",
+  "session.retry",
   "session.status.retry",
+  "tool.failed",
   "permission.asked",
   "todo.updated",
   "command.executed",

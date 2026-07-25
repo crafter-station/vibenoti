@@ -63,6 +63,17 @@ async function emit(hooks: Hooks, event: unknown) {
   await hooks.event?.({ event: event as never });
 }
 
+async function completeText(hooks: Hooks, sessionID = "session-id") {
+  await hooks["experimental.text.complete"]?.(
+    {
+      sessionID,
+      messageID: "message-id",
+      partID: "part-id",
+    },
+    { text: "PRIVATE_ASSISTANT_CONTENT" },
+  );
+}
+
 beforeEach(() => {
   process.env.VIBENOTI_API_KEY = "test-key";
   process.env.VIBENOTI_API_URL = "https://vibenoti.test";
@@ -110,7 +121,11 @@ describe("VibeNotiPlugin", () => {
     });
 
     const events = [
-      { type: "session.idle", properties: { sessionID: "session-id" } },
+      {
+        id: "assistant-idle-event",
+        type: "session.status",
+        properties: { sessionID: "session-id", status: { type: "idle" } },
+      },
       {
         type: "session.error",
         properties: {
@@ -134,14 +149,26 @@ describe("VibeNotiPlugin", () => {
         },
       },
       {
-        type: "todo.updated",
+        type: "question.asked",
         properties: {
           sessionID: "session-id",
-          todos: [{ content: "PRIVATE_TODO" }],
+          questions: [{ question: "PRIVATE_QUESTION" }],
+        },
+      },
+      {
+        type: "session.next.tool.failed",
+        properties: {
+          sessionID: "session-id",
+          error: "PRIVATE_TOOL_ERROR",
         },
       },
     ];
 
+    await emit(hooks, {
+      type: "session.status",
+      properties: { sessionID: "session-id", status: { type: "busy" } },
+    });
+    await completeText(hooks);
     for (const event of events) {
       await emit(hooks, event);
     }
@@ -149,11 +176,12 @@ describe("VibeNotiPlugin", () => {
     const payloads = await Promise.all(requests.map(readPayload));
 
     expect(payloads.map((payload) => payload.eventType)).toEqual([
-      "session.idle",
+      "assistant.completed",
       "session.error",
-      "session.status.retry",
+      "session.retry",
       "permission.asked",
-      "todo.updated",
+      "question.asked",
+      "tool.failed",
     ]);
     expect(payloads[0]?.session.title).toBe("Private-safe session title");
 
@@ -177,7 +205,7 @@ describe("VibeNotiPlugin", () => {
       expect(request.headers.get("authorization")).toBe("Bearer test-key");
     }
 
-    expect(logs.filter((log) => log.message === "Event sent")).toHaveLength(5);
+    expect(logs.filter((log) => log.message === "Event sent")).toHaveLength(6);
   });
 
   test("supports permission.asked without exposing permission details", async () => {
@@ -196,10 +224,194 @@ describe("VibeNotiPlugin", () => {
       },
     });
 
+    await emit(hooks, {
+      type: "permission.v2.asked",
+      properties: {
+        sessionID: "session-id",
+        resources: ["PRIVATE_RESOURCE"],
+      },
+    });
+
+    expect(requests).toHaveLength(2);
+    for (const request of requests) {
+      const payload = await readPayload(request);
+      expect(payload).toMatchObject({
+        eventType: "permission.asked",
+        data: {},
+      });
+      expect(JSON.stringify(payload)).not.toContain("PRIVATE_");
+    }
+  });
+
+  test("sends question.v2.asked without exposing question details", async () => {
+    const requests: Request[] = [];
+    globalThis.fetch = mock(async (input, init) => {
+      requests.push(new Request(input, init));
+      return new Response(null, { status: 202 });
+    }) as unknown as typeof fetch;
+    const hooks = await VibeNotiPlugin(createContext([]) as never);
+
+    await emit(hooks, {
+      id: "question-event-id",
+      type: "question.v2.asked",
+      properties: {
+        sessionID: "session-id",
+        questions: [
+          {
+            question: "PRIVATE_QUESTION",
+            options: [{ label: "PRIVATE_OPTION" }],
+          },
+        ],
+      },
+    });
+
+    expect(requests).toHaveLength(1);
+    const payload = await readPayload(requests[0] as Request);
+    expect(payload).toMatchObject({ eventType: "question.asked", data: {} });
+    expect(JSON.stringify(payload)).not.toContain("PRIVATE_");
+  });
+
+  test("emits assistant.completed only after a completed assistant message becomes idle", async () => {
+    const requests: Request[] = [];
+    globalThis.fetch = mock(async (input, init) => {
+      requests.push(new Request(input, init));
+      return new Response(null, { status: 202 });
+    }) as unknown as typeof fetch;
+    const hooks = await VibeNotiPlugin(createContext([]) as never);
+
+    await emit(hooks, {
+      type: "session.idle",
+      properties: { sessionID: "session-id" },
+    });
+    await emit(hooks, {
+      type: "session.status",
+      properties: { sessionID: "session-id", status: { type: "busy" } },
+    });
+    await emit(hooks, {
+      type: "message.updated",
+      properties: {
+        sessionID: "session-id",
+        info: {
+          role: "assistant",
+          time: { created: 1, completed: 2 },
+          content: "PRIVATE_ASSISTANT_CONTENT",
+        },
+      },
+    });
+    await emit(hooks, {
+      id: "stable-idle-event",
+      type: "session.idle",
+      properties: { sessionID: "session-id" },
+    });
+
+    expect(requests).toHaveLength(1);
+    const payload = await readPayload(requests[0] as Request);
+    expect(payload).toMatchObject({
+      eventType: "assistant.completed",
+      occurredAt: "1970-01-01T00:00:00.002Z",
+    });
+    expect(JSON.stringify(payload)).not.toContain("PRIVATE_");
+  });
+
+  test("emits assistant.completed from a terminal assistant message", async () => {
+    const requests: Request[] = [];
+    globalThis.fetch = mock(async (input, init) => {
+      requests.push(new Request(input, init));
+      return new Response(null, { status: 202 });
+    }) as unknown as typeof fetch;
+    const hooks = await VibeNotiPlugin(createContext([]) as never);
+
+    await emit(hooks, {
+      id: "terminal-message-event",
+      type: "message.updated",
+      properties: {
+        sessionID: "session-id",
+        info: {
+          role: "assistant",
+          finish: "stop",
+          time: { created: 1, completed: 2 },
+          content: "PRIVATE_ASSISTANT_CONTENT",
+        },
+      },
+    });
+
+    expect(requests).toHaveLength(1);
+    const payload = await readPayload(requests[0] as Request);
+    expect(payload).toMatchObject({
+      eventType: "assistant.completed",
+      occurredAt: "1970-01-01T00:00:00.002Z",
+    });
+    expect(JSON.stringify(payload)).not.toContain("PRIVATE_");
+  });
+
+  test("does not emit completion for a tool-call finish", async () => {
+    const fetchMock = mock(async () => new Response(null, { status: 202 }));
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+    const hooks = await VibeNotiPlugin(createContext([]) as never);
+
+    await emit(hooks, {
+      type: "message.updated",
+      properties: {
+        sessionID: "session-id",
+        info: {
+          role: "assistant",
+          finish: "tool-calls",
+          time: { created: 1, completed: 2 },
+        },
+      },
+    });
+
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  test("emits assistant.completed from the text completion hook and idle status", async () => {
+    const requests: Request[] = [];
+    globalThis.fetch = mock(async (input, init) => {
+      requests.push(new Request(input, init));
+      return new Response(null, { status: 202 });
+    }) as unknown as typeof fetch;
+    const hooks = await VibeNotiPlugin(createContext([]) as never);
+
+    await completeText(hooks);
+    await emit(hooks, {
+      id: "idle-status-event",
+      type: "session.status",
+      properties: { sessionID: "session-id", status: { type: "idle" } },
+    });
+
+    expect(requests).toHaveLength(1);
+    const payload = await readPayload(requests[0] as Request);
+    expect(payload).toMatchObject({ eventType: "assistant.completed" });
+    expect(JSON.stringify(payload)).not.toContain("PRIVATE_");
+  });
+
+  test("does not report assistant completion after a session error", async () => {
+    const requests: Request[] = [];
+    globalThis.fetch = mock(async (input, init) => {
+      requests.push(new Request(input, init));
+      return new Response(null, { status: 202 });
+    }) as unknown as typeof fetch;
+    const hooks = await VibeNotiPlugin(createContext([]) as never);
+
+    await emit(hooks, {
+      type: "message.updated",
+      properties: {
+        sessionID: "session-id",
+        info: { role: "assistant", time: { completed: 2 } },
+      },
+    });
+    await emit(hooks, {
+      type: "session.error",
+      properties: { sessionID: "session-id", error: "PRIVATE_ERROR" },
+    });
+    await emit(hooks, {
+      type: "session.idle",
+      properties: { sessionID: "session-id" },
+    });
+
     expect(requests).toHaveLength(1);
     expect(await readPayload(requests[0] as Request)).toMatchObject({
-      eventType: "permission.asked",
-      data: {},
+      eventType: "session.error",
     });
   });
 
@@ -247,6 +459,29 @@ describe("VibeNotiPlugin", () => {
     expect(JSON.stringify(payload)).not.toContain("PRIVATE_");
   });
 
+  test("derives a stable UUID from the OpenCode event id", async () => {
+    const requests: Request[] = [];
+    globalThis.fetch = mock(async (input, init) => {
+      requests.push(new Request(input, init));
+      return new Response(null, { status: 202 });
+    }) as unknown as typeof fetch;
+    const hooks = await VibeNotiPlugin(createContext([]) as never);
+    const event = {
+      id: "same-opencode-event-id",
+      type: "question.asked",
+      properties: { sessionID: "session-id", questions: [] },
+    };
+
+    await emit(hooks, event);
+    await emit(hooks, event);
+
+    const [first, second] = await Promise.all(requests.map(readPayload));
+    expect(first?.eventId).toBe(second?.eventId);
+    expect(first?.eventId).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-5[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
+    );
+  });
+
   test("ignores events from child sessions", async () => {
     const fetchMock = mock(async () => new Response(null, { status: 202 }));
     globalThis.fetch = fetchMock as unknown as typeof fetch;
@@ -260,7 +495,7 @@ describe("VibeNotiPlugin", () => {
     );
 
     await emit(hooks, {
-      type: "session.idle",
+      type: "question.asked",
       properties: { sessionID: "child-session-id" },
     });
 
@@ -290,7 +525,7 @@ describe("VibeNotiPlugin", () => {
       properties: { info: { id: "session-id" } },
     });
     await emit(hooks, {
-      type: "session.idle",
+      type: "question.asked",
       properties: { sessionID: "session-id" },
     });
 
@@ -311,7 +546,7 @@ describe("VibeNotiPlugin", () => {
     );
 
     await emit(hooks, {
-      type: "session.idle",
+      type: "question.asked",
       properties: { sessionID: "unknown-session-id" },
     });
 
@@ -332,14 +567,14 @@ describe("VibeNotiPlugin", () => {
 
     await expect(
       emit(hooks, {
-        type: "session.idle",
+        type: "question.asked",
         properties: { sessionID: "session-id" },
       }),
     ).resolves.toBeUndefined();
     expect(logs.at(-1)).toMatchObject({
       level: "error",
       message: "Event delivery failed",
-      extra: { error: "TypeError", eventType: "session.idle" },
+      extra: { error: "TypeError", eventType: "question.asked" },
     });
     expect(JSON.stringify(logs)).not.toContain("PRIVATE_NETWORK_DETAILS");
   });

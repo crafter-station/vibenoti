@@ -1,4 +1,4 @@
-import { openCodeEventSchema } from "./event-schema";
+import { type OpenCodeEvent, openCodeEventSchema } from "./event-schema";
 
 const MAX_BODY_SIZE = 16 * 1024;
 
@@ -19,6 +19,11 @@ type ApiKeyVerification = {
 };
 
 type VerifyApiKey = (key: string) => Promise<ApiKeyVerification>;
+
+type PersistEvent = (
+  event: OpenCodeEvent,
+  identity: { apiKeyId: string; userId: string },
+) => Promise<void>;
 
 type LogLevel = "info" | "warn" | "error";
 
@@ -47,8 +52,13 @@ function logEvent(
   console.info(entry);
 }
 
-function errorResponse(code: ErrorCode, message: string, status: number) {
-  return Response.json({ error: { code, message } }, { status });
+function errorResponse(
+  code: ErrorCode,
+  message: string,
+  status: number,
+  headers?: HeadersInit,
+) {
+  return Response.json({ error: { code, message } }, { status, headers });
 }
 
 function getBearerToken(request: Request) {
@@ -92,6 +102,7 @@ async function readBody(request: Request) {
 export async function ingestEvent(
   request: Request,
   verifyApiKey: VerifyApiKey,
+  persistEvent: PersistEvent,
 ) {
   const apiKey = getBearerToken(request);
 
@@ -184,6 +195,26 @@ export async function ingestEvent(
     );
   }
 
+  try {
+    await persistEvent(result.data, {
+      apiKeyId: verifiedKey.id,
+      userId: verifiedKey.referenceId,
+    });
+  } catch {
+    logEvent("error", "Event persistence failed", {
+      apiKeyId: verifiedKey.id,
+      eventId: result.data.eventId,
+      eventType: result.data.eventType,
+      referenceId: verifiedKey.referenceId,
+    });
+    return errorResponse(
+      "service_unavailable",
+      "Event storage is temporarily unavailable",
+      503,
+      { "Retry-After": "5" },
+    );
+  }
+
   logEvent("info", "Event accepted", {
     apiKeyId: verifiedKey.id,
     contractVersion: result.data.contractVersion,
@@ -191,15 +222,13 @@ export async function ingestEvent(
     eventType: result.data.eventType,
     occurredAt: result.data.occurredAt,
     projectId: result.data.project.id,
-    projectName: result.data.project.name,
     referenceId: verifiedKey.referenceId,
     sessionId: result.data.session.id,
-    sessionTitle: result.data.session.title,
     source: result.data.source,
   });
 
   return Response.json(
     { accepted: true, eventId: result.data.eventId },
-    { status: 202 },
+    { status: 202, headers: { "Cache-Control": "no-store" } },
   );
 }

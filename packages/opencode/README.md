@@ -18,6 +18,21 @@ export VIBENOTI_COMMAND_EVENTS=false
 `VIBENOTI_API_KEY` debe ser una key creada mediante Better Auth con permiso
 `events:write`.
 
+El plugin envía únicamente eventos que requieren atención:
+
+- `assistant.completed`
+- `question.asked`
+- `permission.asked`
+- `session.error`
+- `session.retry`
+- `tool.failed`
+- `command.executed` cuando `VIBENOTI_COMMAND_EVENTS=true`
+
+`assistant.completed` requiere un mensaje assistant completado con
+`finish: "stop"`. Los mensajes que terminan para ejecutar tools no se consideran
+una respuesta final. `session.idle` se conserva como fallback para versiones de
+OpenCode que sí lo emiten al plugin.
+
 Este repositorio carga la implementación de `packages/opencode` mediante
 `.opencode/plugins/vibenoti.ts`. Ejecuta `bun install` desde la raíz antes de
 iniciar OpenCode. Las variables deben estar exportadas en el shell que inicia

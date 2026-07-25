@@ -1,5 +1,15 @@
 import { drizzle } from "drizzle-orm/bun-sql";
 import * as authSchema from "./auth-schema";
+import * as appSchema from "./schema";
 
-export const db = drizzle(process.env.DATABASE_URL!, { schema: authSchema });
-export { authSchema };
+const databaseUrl = process.env.DATABASE_URL;
+
+if (!databaseUrl) {
+  throw new Error("DATABASE_URL is required");
+}
+
+export const db = drizzle(databaseUrl, {
+  schema: { ...authSchema, ...appSchema },
+});
+export { appSchema, authSchema };
+export * from "./schema";

@@ -28,8 +28,8 @@ bun run dev
 
 `POST /v1/events` recibe eventos de OpenCode autenticados mediante
 `Authorization: Bearer <VIBENOTI_API_KEY>`. La key debe pertenecer a un usuario
-y tener el permiso `events:write`. El endpoint valida el evento y responde
-`202` sin persistirlo.
+y tener el permiso `events:write`. El endpoint valida, persiste el evento de
+forma idempotente y responde `202`.
 
 El servidor registra en consola únicamente metadata validada y permitida. Los
 rechazos muestran códigos y paths de validación, pero nunca el body crudo,
@@ -44,7 +44,7 @@ curl http://localhost:3000/v1/events \
     "source": "opencode",
     "contractVersion": 1,
     "eventId": "123e4567-e89b-12d3-a456-426614174000",
-    "eventType": "session.idle",
+    "eventType": "assistant.completed",
     "occurredAt": "2026-07-19T18:30:00Z",
     "project": { "id": "project-id", "name": "Vibe Noti" },
     "session": { "id": "session-id", "title": "Test session" },

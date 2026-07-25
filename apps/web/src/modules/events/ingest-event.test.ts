@@ -16,6 +16,7 @@ const verifyApiKey = mock(async () => ({
   valid: true,
   key: verifiedApiKey,
 }));
+const persistEvent = mock(async () => {});
 const infoSpy = spyOn(console, "info").mockImplementation(() => {});
 const warnSpy = spyOn(console, "warn").mockImplementation(() => {});
 const errorSpy = spyOn(console, "error").mockImplementation(() => {});
@@ -47,6 +48,7 @@ function createRequest(
 
 beforeEach(() => {
   verifyApiKey.mockClear();
+  persistEvent.mockClear();
   infoSpy.mockClear();
   warnSpy.mockClear();
   errorSpy.mockClear();
@@ -61,8 +63,9 @@ afterAll(() => {
 function ingest(
   request: Request,
   verify: Parameters<typeof ingestEvent>[1] = verifyApiKey,
+  persist: Parameters<typeof ingestEvent>[2] = persistEvent,
 ) {
-  return ingestEvent(request, verify);
+  return ingestEvent(request, verify, persist);
 }
 
 describe("POST /v1/events", () => {
@@ -70,6 +73,7 @@ describe("POST /v1/events", () => {
     const response = await ingest(createRequest());
 
     expect(response.status).toBe(202);
+    expect(response.headers.get("cache-control")).toBe("no-store");
     expect(await response.json()).toEqual({
       accepted: true,
       eventId: validEvent.eventId,
@@ -85,14 +89,62 @@ describe("POST /v1/events", () => {
         eventType: validEvent.eventType,
         occurredAt: validEvent.occurredAt,
         projectId: validEvent.project.id,
-        projectName: validEvent.project.name,
         referenceId: verifiedApiKey.referenceId,
         sessionId: validEvent.session.id,
-        sessionTitle: validEvent.session.title,
         source: validEvent.source,
       }),
     );
     expect(verifyApiKey).toHaveBeenCalledWith(apiKey);
+    expect(persistEvent).toHaveBeenCalledWith(validEvent, {
+      apiKeyId: verifiedApiKey.id,
+      userId: verifiedApiKey.referenceId,
+    });
+    expect(JSON.stringify(infoSpy.mock.calls)).not.toContain(
+      validEvent.project.name,
+    );
+    expect(JSON.stringify(infoSpy.mock.calls)).not.toContain(
+      validEvent.session.title,
+    );
+  });
+
+  test("persists sanitized project and session text", async () => {
+    const response = await ingest(
+      createRequest(
+        JSON.stringify({
+          ...validEvent,
+          project: { ...validEvent.project, name: "  Vibe\nNoti  " },
+          session: {
+            ...validEvent.session,
+            title: "  Implement\tnotifications  ",
+          },
+        }),
+      ),
+    );
+
+    expect(response.status).toBe(202);
+    expect(persistEvent).toHaveBeenCalledWith(
+      {
+        ...validEvent,
+        project: { ...validEvent.project, name: "Vibe Noti" },
+        session: {
+          ...validEvent.session,
+          title: "Implement notifications",
+        },
+      },
+      {
+        apiKeyId: verifiedApiKey.id,
+        userId: verifiedApiKey.referenceId,
+      },
+    );
+  });
+
+  test("accepts duplicate deliveries idempotently", async () => {
+    const first = await ingest(createRequest());
+    const second = await ingest(createRequest());
+
+    expect(first.status).toBe(202);
+    expect(second.status).toBe(202);
+    expect(persistEvent).toHaveBeenCalledTimes(2);
   });
 
   test("rejects an invalid API key", async () => {
@@ -135,6 +187,25 @@ describe("POST /v1/events", () => {
     });
   });
 
+  test("returns 503 when event persistence is unavailable", async () => {
+    const response = await ingest(
+      createRequest(),
+      verifyApiKey,
+      mock(async () => {
+        throw new Error("PostgreSQL unavailable");
+      }),
+    );
+
+    expect(response.status).toBe(503);
+    expect(response.headers.get("retry-after")).toBe("5");
+    expect(await response.json()).toEqual({
+      error: {
+        code: "service_unavailable",
+        message: "Event storage is temporarily unavailable",
+      },
+    });
+  });
+
   test("rejects unsupported content and malformed JSON", async () => {
     const unsupported = await ingest(
       createRequest(undefined, { "content-type": "text/plain" }),
@@ -158,6 +229,7 @@ describe("POST /v1/events", () => {
     );
 
     expect(response.status).toBe(422);
+    expect(persistEvent).not.toHaveBeenCalled();
     expect(JSON.stringify(warnSpy.mock.calls)).not.toContain(privateValue);
     expect(warnSpy).toHaveBeenCalledWith(
       JSON.stringify({
