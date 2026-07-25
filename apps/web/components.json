@@ -23,6 +23,7 @@
   },
   "registries": {
     "@tailark": "https://tailark.com/r/{name}.json",
-    "@evilcharts": "https://evilcharts.com/r/{name}.json"
+    "@evilcharts": "https://evilcharts.com/r/{name}.json",
+    "@elements": "https://www.tryelements.dev/r/{name}.json"
   }
 }
