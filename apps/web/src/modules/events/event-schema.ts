@@ -1,17 +1,5 @@
 import { z } from "zod";
-
-const EVENT_TYPES = [
-  "assistant.completed",
-  "question.asked",
-  "session.idle",
-  "session.error",
-  "session.retry",
-  "session.status.retry",
-  "tool.failed",
-  "permission.asked",
-  "todo.updated",
-  "command.executed",
-] as const;
+import { OPEN_CODE_EVENT_TYPES } from "./event-types";
 
 function sanitizeText(value: string, maxLength: number) {
   const sanitized = Array.from(value, (character) => {
@@ -46,7 +34,7 @@ export const openCodeEventSchema = z.strictObject({
   source: z.literal("opencode"),
   contractVersion: z.literal(1),
   eventId: z.uuid(),
-  eventType: z.enum(EVENT_TYPES),
+  eventType: z.enum(OPEN_CODE_EVENT_TYPES),
   occurredAt: z.iso.datetime({ offset: true }),
   project: z.strictObject({
     id: identifierSchema,

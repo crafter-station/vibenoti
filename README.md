@@ -30,6 +30,16 @@ The launcher reads `VIBENOTI_API_KEY` from `apps/web/.env`. Generate the key
 through Better Auth before starting OpenCode. OpenCode must be restarted after
 plugin changes.
 
+## Slack demo
+
+Create a Slack app for the demo workspace and add the `chat:write` and
+`im:write` bot scopes. Install the app, then set its `xoxb-...` Bot User OAuth
+Token as `SLACK_BOT_TOKEN` in `apps/web/.env`.
+
+Each VibeNoti user configures their Slack Member ID from the Integrations page.
+This outbound-only demo supports multiple users in one Slack workspace and does
+not require a webhook or OAuth callback.
+
 ## Validation
 
 ```bash

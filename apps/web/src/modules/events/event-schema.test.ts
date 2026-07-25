@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import { openCodeEventSchema } from "./event-schema";
+import { OPEN_CODE_EVENT_TYPES } from "./event-types";
 
 const validEvent = {
   source: "opencode",
@@ -15,20 +16,7 @@ const validEvent = {
 
 describe("openCodeEventSchema", () => {
   test("accepts every supported event type", () => {
-    const eventTypes = [
-      "assistant.completed",
-      "question.asked",
-      "session.idle",
-      "session.error",
-      "session.retry",
-      "session.status.retry",
-      "tool.failed",
-      "permission.asked",
-      "todo.updated",
-      "command.executed",
-    ];
-
-    for (const eventType of eventTypes) {
+    for (const eventType of OPEN_CODE_EVENT_TYPES) {
       expect(
         openCodeEventSchema.safeParse({ ...validEvent, eventType }).success,
       ).toBe(true);

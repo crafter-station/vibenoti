@@ -1,5 +1,7 @@
 import {
+  boolean,
   index,
+  jsonb,
   pgTable,
   smallint,
   text,
@@ -10,6 +12,29 @@ import {
 } from "drizzle-orm/pg-core";
 
 import { user } from "./auth-schema";
+
+export const slackIntegration = pgTable(
+  "slack_integration",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    slackUserId: varchar("slack_user_id", { length: 32 }).notNull(),
+    dmChannelId: varchar("dm_channel_id", { length: 32 }),
+    enabled: boolean("enabled").default(true).notNull(),
+    eventTypes: jsonb("event_types").$type<string[]>().default([]).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    uniqueIndex("slack_integration_userId_uidx").on(table.userId),
+  ],
+);
 
 export const event = pgTable(
   "event",
