@@ -21,7 +21,7 @@ export async function DashboardMetrics({ userId }: DashboardMetricsProps) {
       aria-label="Analytics overview"
     >
       {metricCards.map(({ label, value }) => (
-        <Card key={label} size="sm" className="bg-muted ring-0">
+        <Card key={label} size="sm" className="ring-0">
           <CardHeader>
             <CardTitle className="text-xs font-medium text-muted-foreground">
               {label}
