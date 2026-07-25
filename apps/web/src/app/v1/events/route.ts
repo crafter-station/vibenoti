@@ -1,7 +1,9 @@
 import { auth } from "auth";
+import { after } from "next/server";
 
 import { ingestEvent } from "@/modules/events/ingest-event";
 import { persistEvent } from "@/modules/events/persist-event";
+import { deliverSlackEvent } from "@/modules/integrations/deliver-slack-event";
 
 export function POST(request: Request) {
   return ingestEvent(
@@ -16,5 +18,8 @@ export function POST(request: Request) {
         },
       }),
     persistEvent,
+    (event, identity) => {
+      after(() => deliverSlackEvent(event, identity.userId));
+    },
   );
 }

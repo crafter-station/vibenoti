@@ -6,6 +6,11 @@ import {
   callSlackApi,
   postSlackMessage,
 } from "@chat-adapter/slack/api";
+import type { OpenCodeEvent } from "@/modules/events/event-schema";
+import {
+  buildSlackEventMessage,
+  buildSlackTestMessage,
+} from "./slack-messages";
 
 interface ConversationsOpenResponse extends SlackApiResponse {
   channel?: { id?: string };
@@ -51,11 +56,22 @@ export async function sendSlackTestNotification(slackUserId: string) {
 
   await postSlackMessage({
     channel: channelId,
-    text: "VibeNoti is connected. You will receive OpenCode notifications here.",
+    ...buildSlackTestMessage(),
     token,
   });
 
   console.info("[slack] Test notification sent", { slackUserId, channelId });
 
   return channelId;
+}
+
+export async function sendSlackEventNotification(
+  channelId: string,
+  event: OpenCodeEvent,
+) {
+  await postSlackMessage({
+    channel: channelId,
+    ...buildSlackEventMessage(event),
+    token: getSlackBotToken(),
+  });
 }

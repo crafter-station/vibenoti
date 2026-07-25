@@ -23,7 +23,12 @@ type VerifyApiKey = (key: string) => Promise<ApiKeyVerification>;
 type PersistEvent = (
   event: OpenCodeEvent,
   identity: { apiKeyId: string; userId: string },
-) => Promise<void>;
+) => Promise<boolean>;
+
+type OnEventPersisted = (
+  event: OpenCodeEvent,
+  identity: { apiKeyId: string; userId: string },
+) => void;
 
 type LogLevel = "info" | "warn" | "error";
 
@@ -103,6 +108,7 @@ export async function ingestEvent(
   request: Request,
   verifyApiKey: VerifyApiKey,
   persistEvent: PersistEvent,
+  onEventPersisted?: OnEventPersisted,
 ) {
   const apiKey = getBearerToken(request);
 
@@ -195,11 +201,14 @@ export async function ingestEvent(
     );
   }
 
+  const identity = {
+    apiKeyId: verifiedKey.id,
+    userId: verifiedKey.referenceId,
+  };
+  let inserted: boolean;
+
   try {
-    await persistEvent(result.data, {
-      apiKeyId: verifiedKey.id,
-      userId: verifiedKey.referenceId,
-    });
+    inserted = await persistEvent(result.data, identity);
   } catch {
     logEvent("error", "Event persistence failed", {
       apiKeyId: verifiedKey.id,
@@ -213,6 +222,10 @@ export async function ingestEvent(
       503,
       { "Retry-After": "5" },
     );
+  }
+
+  if (inserted) {
+    onEventPersisted?.(result.data, identity);
   }
 
   logEvent("info", "Event accepted", {

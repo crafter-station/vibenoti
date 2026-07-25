@@ -11,7 +11,7 @@ export async function persistEvent(
   event: OpenCodeEvent,
   identity: EventIdentity,
 ) {
-  await db
+  const inserted = await db
     .insert(eventTable)
     .values({
       apiKeyId: identity.apiKeyId,
@@ -32,5 +32,8 @@ export async function persistEvent(
         eventTable.source,
         eventTable.externalEventId,
       ],
-    });
+    })
+    .returning({ id: eventTable.id });
+
+  return inserted.length > 0;
 }

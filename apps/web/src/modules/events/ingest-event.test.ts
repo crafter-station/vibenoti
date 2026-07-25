@@ -16,7 +16,8 @@ const verifyApiKey = mock(async () => ({
   valid: true,
   key: verifiedApiKey,
 }));
-const persistEvent = mock(async () => {});
+const persistEvent = mock(async () => true);
+const onEventPersisted = mock(() => {});
 const infoSpy = spyOn(console, "info").mockImplementation(() => {});
 const warnSpy = spyOn(console, "warn").mockImplementation(() => {});
 const errorSpy = spyOn(console, "error").mockImplementation(() => {});
@@ -49,6 +50,7 @@ function createRequest(
 beforeEach(() => {
   verifyApiKey.mockClear();
   persistEvent.mockClear();
+  onEventPersisted.mockClear();
   infoSpy.mockClear();
   warnSpy.mockClear();
   errorSpy.mockClear();
@@ -64,8 +66,9 @@ function ingest(
   request: Request,
   verify: Parameters<typeof ingestEvent>[1] = verifyApiKey,
   persist: Parameters<typeof ingestEvent>[2] = persistEvent,
+  onPersisted: Parameters<typeof ingestEvent>[3] = onEventPersisted,
 ) {
-  return ingestEvent(request, verify, persist);
+  return ingestEvent(request, verify, persist, onPersisted);
 }
 
 describe("POST /v1/events", () => {
@@ -96,6 +99,10 @@ describe("POST /v1/events", () => {
     );
     expect(verifyApiKey).toHaveBeenCalledWith(apiKey);
     expect(persistEvent).toHaveBeenCalledWith(validEvent, {
+      apiKeyId: verifiedApiKey.id,
+      userId: verifiedApiKey.referenceId,
+    });
+    expect(onEventPersisted).toHaveBeenCalledWith(validEvent, {
       apiKeyId: verifiedApiKey.id,
       userId: verifiedApiKey.referenceId,
     });
@@ -139,12 +146,30 @@ describe("POST /v1/events", () => {
   });
 
   test("accepts duplicate deliveries idempotently", async () => {
-    const first = await ingest(createRequest());
-    const second = await ingest(createRequest());
+    let isFirstDelivery = true;
+    const persist = mock(async () => {
+      const inserted = isFirstDelivery;
+      isFirstDelivery = false;
+      return inserted;
+    });
+    const schedule = mock(() => {});
+    const first = await ingest(
+      createRequest(),
+      verifyApiKey,
+      persist,
+      schedule,
+    );
+    const second = await ingest(
+      createRequest(),
+      verifyApiKey,
+      persist,
+      schedule,
+    );
 
     expect(first.status).toBe(202);
     expect(second.status).toBe(202);
-    expect(persistEvent).toHaveBeenCalledTimes(2);
+    expect(persist).toHaveBeenCalledTimes(2);
+    expect(schedule).toHaveBeenCalledTimes(1);
   });
 
   test("rejects an invalid API key", async () => {
@@ -185,6 +210,7 @@ describe("POST /v1/events", () => {
         message: "Authentication service is temporarily unavailable",
       },
     });
+    expect(onEventPersisted).not.toHaveBeenCalled();
   });
 
   test("returns 503 when event persistence is unavailable", async () => {

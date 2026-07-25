@@ -35,6 +35,34 @@ export async function getSlackSettings(userId: string) {
   } satisfies SlackSettings;
 }
 
+export async function getSlackDeliveryTarget(
+  userId: string,
+  eventType: OpenCodeEventType,
+) {
+  const [integration] = await db
+    .select({
+      dmChannelId: slackIntegration.dmChannelId,
+      enabled: slackIntegration.enabled,
+      eventTypes: slackIntegration.eventTypes,
+      slackUserId: slackIntegration.slackUserId,
+    })
+    .from(slackIntegration)
+    .where(eq(slackIntegration.userId, userId))
+    .limit(1);
+
+  if (
+    !integration?.enabled ||
+    !normalizeEventTypes(integration.eventTypes).includes(eventType)
+  ) {
+    return null;
+  }
+
+  return {
+    dmChannelId: integration.dmChannelId,
+    slackUserId: integration.slackUserId,
+  };
+}
+
 export async function saveSlackSettings(
   userId: string,
   settings: SlackSettings,
