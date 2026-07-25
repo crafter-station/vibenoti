@@ -1,7 +1,7 @@
+import { BookOpen } from "lucide-react";
+import Image from "next/image";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
-import Image from "next/image";
-import { BookOpen } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 export default function HeroSection() {
@@ -19,19 +19,12 @@ export default function HeroSection() {
             errors, and status updates to the channels you already use.
           </p>
 
-          <div className="flex flex-col items-center gap-2 *:w-full sm:flex-row sm:*:w-auto">
+          <div>
             <Button
               render={<Link href="/dashboard" prefetch={true} />}
               nativeButton={false}
             >
               <span className="text-nowrap">Start for free</span>
-            </Button>
-            <Button
-              variant="ghost"
-              render={<Link href="#link" />}
-              nativeButton={false}
-            >
-              <span className="text-nowrap">See how it works</span>
             </Button>
           </div>
         </div>
@@ -45,7 +38,7 @@ export default function HeroSection() {
 
           <div className="bg-background rounded-(--radius) relative m-4 overflow-hidden border border-transparent shadow-xl shadow-black/15 ring-1 ring-black/10 sm:m-8 md:m-12">
             <Image
-              src="/mist/tailark-2.png"
+              src="/demo.png"
               alt="app screen"
               width="2880"
               height="1842"

@@ -13,7 +13,7 @@ export default async function AppLayout({
   });
 
   if (!session) {
-    redirect("/");
+    redirect("/login");
   }
 
   return (
