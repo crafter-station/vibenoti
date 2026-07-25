@@ -17,7 +17,7 @@ export default async function AppLayout({
   }
 
   return (
-    <div className="flex min-h-dvh flex-col">
+    <div className="flex min-h-dvh flex-col pt-4">
       <AppHeader avatarHash={session.user.email || session.user.id} />
       <div className="flex flex-1 flex-col">{children}</div>
     </div>
